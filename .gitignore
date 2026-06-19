@@ -1,0 +1,93 @@
+# =========================================================================
+# Node.js (Server) Ignores
+# =========================================================================
+# Dependency directories
+server/node_modules/
+node_modules/
+
+# Production/Build outputs
+server/dist/
+server/out/
+server/build/
+
+# Log files
+server/*.log
+server/npm-debug.log*
+server/yarn-debug.log*
+server/yarn-error.log*
+server/pnpm-debug.log*
+server/lerna-debug.log*
+
+# Environment variables & secrets
+server/.env
+server/.env.local
+server/.env.development.local
+server/.env.test.local
+server/.env.production.local
+server/*.env
+
+# Testing & Coverage
+server/coverage/
+server/.nyc_output/
+
+# IDE / Editor folders (Server specific)
+server/.vscode/
+server/.idea/
+
+# =========================================================================
+# Unity (Client) Ignores
+# =========================================================================
+# Unity-generated folders
+client/[Ll]ibrary/
+client/[Tt]emp/
+client/[Oo]bj/
+client/[Bb]uild/
+client/[Bb]uilds/
+client/[Ll]ogs/
+client/[Uu]ser[Ss]ettings/
+client/[Mm]emoryCaptures/
+client/[Rr]ecordingBackups/
+
+# Root-level temporary folders (if Unity project was initialized at root)
+/Library/
+/Temp/
+/Obj/
+/Build/
+/Builds/
+/Logs/
+/UserSettings/
+
+# Visual Studio / Rider / MonoDevelop generated files
+client/*.csproj
+client/*.unityproj
+client/*.sln
+client/*.suo
+client/*.tmp
+client/*.user
+client/*.userprefs
+client/*.pidb
+client/*.booproj
+client/*.svd
+client/*.pdb
+client/*.opendb
+client/*.db-shm
+client/*.db-wal
+
+# Visual Studio / Rider cache & settings
+client/.vs/
+client/.idea/
+client/.rider/
+.vs/
+.idea/
+
+# Crashlytics/Firebase generated properties
+client/crashlytics-build.properties
+
+# OS-generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
