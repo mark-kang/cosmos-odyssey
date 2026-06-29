@@ -21,6 +21,9 @@ export class CommandInput {
   private _targetHeading: number = 0;
   private _weaponType: 'BEAM' | 'TORPEDO' = 'BEAM';
 
+  // --- 2.5초 시점 예상 함선 상태 (클램핑 기준점) ---
+  private predicted25State = { position: { x: 400, y: 360 }, heading: 0 };
+
   // --- 드래그 상태 ---
   private isDragging = false;
 
@@ -44,7 +47,51 @@ export class CommandInput {
 
   setWeaponType(type: 'BEAM' | 'TORPEDO'): void {
     this._weaponType = type;
+    if (type === 'BEAM' && this._weaponTarget) {
+      this._weaponTarget = this.clampBeamTarget(this._weaponTarget);
+    }
     this.onCommandChange?.();
+  }
+
+  /** 예측된 2.5초 시점의 상태 주입 및 타겟 리클램핑 */
+  updatePredicted25State(pos: Vector2, heading: number): void {
+    this.predicted25State = { position: { ...pos }, heading };
+    if (this._weaponTarget && this._weaponType === 'BEAM') {
+      this._weaponTarget = this.clampBeamTarget(this._weaponTarget);
+    }
+  }
+
+  /** 직사 빔의 타겟 좌표를 사거리 및 사각 한계선으로 클램핑 */
+  private clampBeamTarget(target: Vector2): Vector2 {
+    const origin = this.predicted25State.position;
+    const heading = this.predicted25State.heading;
+
+    const dx = target.x - origin.x;
+    const dy = target.y - origin.y;
+    const d = Math.sqrt(dx * dx + dy * dy);
+
+    if (d === 0) return { ...origin };
+
+    const targetAngle = Math.atan2(dy, dx);
+    let diff = targetAngle - heading;
+
+    // [-PI, PI] 범위 정규화
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+
+    const maxAngle = GAME_CONSTANTS.BEAM_MAX_ANGLE;
+    const maxRange = GAME_CONSTANTS.BEAM_MAX_RANGE;
+
+    let finalAngle = targetAngle;
+    if (Math.abs(diff) > maxAngle) {
+      finalAngle = heading + Math.sign(diff) * maxAngle;
+    }
+
+    const finalRange = Math.min(d, maxRange);
+    return {
+      x: origin.x + Math.cos(finalAngle) * finalRange,
+      y: origin.y + Math.sin(finalAngle) * finalRange,
+    };
   }
 
   // --- 이벤트 설정 ---
@@ -63,10 +110,16 @@ export class CommandInput {
     this.app.canvas.addEventListener('contextmenu', (e: MouseEvent) => {
       e.preventDefault();
       const rect = this.app.canvas.getBoundingClientRect();
-      this._weaponTarget = {
+      const rawTarget = {
         x: e.clientX - rect.left,
         y: e.clientY - rect.top,
       };
+
+      if (this._weaponType === 'BEAM') {
+        this._weaponTarget = this.clampBeamTarget(rawTarget);
+      } else {
+        this._weaponTarget = rawTarget;
+      }
       this.onCommandChange?.();
     });
 

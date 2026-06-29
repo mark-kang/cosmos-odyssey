@@ -1,9 +1,10 @@
-import { Application, Graphics, Container } from 'pixi.js';
+import { Application, Graphics, Container, Assets } from 'pixi.js';
 import { GAME_CONSTANTS, ShipState, SimulationEvent, TurnCommand } from '@shared/types';
 import { Ship } from './game/Ship';
 import { CommandInput } from './game/CommandInput';
 import { PredictionRenderer } from './game/PredictionRenderer';
 import { HUD } from './ui/HUD';
+import { sound } from './game/SoundManager';
 
 const SERVER_URL = 'http://localhost:3000';
 
@@ -56,6 +57,12 @@ async function main() {
     antialias: true,
   });
   document.body.appendChild(app.canvas);
+
+  // --- 에셋 사전 로드 (Preload Assets) ---
+  await Assets.load([
+    '/assets/ship_blue.png',
+    '/assets/ship_red.png'
+  ]);
 
   // --- 3. 레이어 설정 ---
   const bgLayer = new Container();
@@ -123,6 +130,7 @@ async function main() {
       commandInput.weaponTarget,
       commandInput.weaponType
     );
+    commandInput.updatePredicted25State(prediction.predicted25Pos, prediction.predicted25Heading);
     hud.updateWeapon(commandInput.weaponType);
   };
 
@@ -130,6 +138,17 @@ async function main() {
   const hud = new HUD();
   hud.updateHP(shipA.state, shipB.state);
   hud.updateVelocity(myShip.state.velocity);
+
+  // 최초 2.5초 예측 위치/각도 캡처 및 주입
+  prediction.update(
+    myShip.state,
+    commandInput.thrust,
+    commandInput.targetHeading,
+    commandInput.weaponTarget,
+    commandInput.weaponType
+  );
+  commandInput.updatePredicted25State(prediction.predicted25Pos, prediction.predicted25Heading);
+
   hud.updateWeapon(commandInput.weaponType);
   hud.setPhase(`명령 입력 중 [Turn ${turnNumber}]`);
 
@@ -216,6 +235,17 @@ async function main() {
     hud.setSubmitDisabled(false);
     prediction.graphics.visible = true;
     commandInput.reset();
+
+    // 턴 초기화 시 2.5초 예측 캡처 수행
+    prediction.update(
+      myShip.state,
+      commandInput.thrust,
+      commandInput.targetHeading,
+      commandInput.weaponTarget,
+      commandInput.weaponType
+    );
+    commandInput.updatePredicted25State(prediction.predicted25Pos, prediction.predicted25Heading);
+
     hud.updateVelocity(myShip.state.velocity);
     hud.updateWeapon(commandInput.weaponType);
     hud.setPhase(`명령 입력 중 [Turn ${turnNumber}]`);
@@ -224,8 +254,13 @@ async function main() {
   // --- 8. 시뮬레이션 연출 재생기 (Sequence Player) ---
   interface ActiveLaser {
     graphics: Graphics;
-    duration: number;
+    origin: { x: number; y: number };
+    target: { x: number; y: number };
+    color: number;
+    elapsed: number;
+    chargingDuration: number;
     maxDuration: number;
+    hasFired: boolean;
   }
 
   interface ActiveExplosion {
@@ -261,6 +296,9 @@ async function main() {
     let playbackTime = 0;
     let eventIndex = 0;
 
+    // 시뮬레이션 추진음 재생 가동
+    sound.startThrusterLoop();
+
     // 이벤트 시간 오름차순 정렬
     const sortedEvents = [...events].sort((a, b) => a.time - b.time);
 
@@ -286,19 +324,24 @@ async function main() {
           case 'FIRE': {
             const ship = ev.shipId === 'playerA' ? shipA : shipB;
             if (ev.weaponType === 'BEAM') {
-              // 레이저 연출 스폰
+              // 레이저 연출 스폰 (지잉 응축 -> 슈웅 격발 루프를 위해 상태 등록)
               const laserG = new Graphics();
               effectLayer.addChild(laserG);
               activeLasers.push({
                 graphics: laserG,
-                duration: 0.4,
-                maxDuration: 0.4,
+                origin: { ...ev.origin },
+                target: { ...ev.target },
+                color: ship.color,
+                elapsed: 0,
+                chargingDuration: 0.25,
+                maxDuration: 0.65,
+                hasFired: false,
               });
-              // 선 그리기
-              laserG.moveTo(ev.origin.x, ev.origin.y);
-              laserG.lineTo(ev.target.x, ev.target.y);
-              laserG.stroke({ width: 4, color: ship.color });
+              // 빔 충전음 재생
+              sound.playBeamCharge(0.25);
             } else if (ev.weaponType === 'TORPEDO') {
+              // 어뢰 발사음 재생
+              sound.playTorpedoLaunch();
               // 어뢰 날아가는 애니메이션 데이터 스폰
               const torpG = new Graphics();
               effectLayer.addChild(torpG);
@@ -327,6 +370,9 @@ async function main() {
               shakeDurationB = 0.25;
             }
 
+            // 피격 폭발음 재생
+            sound.playExplosion();
+
             // 폭발 이펙트 추가
             const expG = new Graphics();
             effectLayer.addChild(expG);
@@ -352,13 +398,79 @@ async function main() {
 
       // 2. 부드러운 애니메이션 업데이트 (프레임 단위)
       
-      // 빔 페이드아웃
+      // 빔 페이드아웃 및 충전/격발 실시간 드로잉
       activeLasers.forEach((laser) => {
-        laser.duration -= dtSec;
-        laser.graphics.alpha = Math.max(0, laser.duration / laser.maxDuration);
+        laser.elapsed += dtSec;
+        laser.graphics.clear();
+
+        const color = laser.color;
+        const org = laser.origin;
+        const tgt = laser.target;
+
+        if (laser.elapsed <= laser.chargingDuration) {
+          // 1단계: 지잉하고 응축 (Charging Phase)
+          const progress = laser.elapsed / laser.chargingDuration; // 0.0 ~ 1.0
+          const maxRadius = 35 * (1 - progress); // 사방에서 중심으로 응축
+          const orbRadius = 3 + 6 * progress; // 구체가 점점 웅장해짐
+
+          // 에너지 구체
+          laser.graphics.circle(org.x, org.y, orbRadius);
+          laser.graphics.fill({ color: 0xffffff, alpha: 0.5 * progress });
+          laser.graphics.circle(org.x, org.y, orbRadius + 4);
+          laser.graphics.fill({ color, alpha: 0.3 * progress });
+
+          // 기수로 소용돌이치며 들어가는 에너지 선들 (4갈래)
+          const particleCount = 4;
+          for (let i = 0; i < particleCount; i++) {
+            const angle = (i / particleCount) * Math.PI * 2 + progress * Math.PI * 2.5;
+            const px = org.x + Math.cos(angle) * maxRadius;
+            const py = org.y + Math.sin(angle) * maxRadius;
+            laser.graphics.moveTo(px, py);
+            laser.graphics.lineTo(org.x, org.y);
+            laser.graphics.stroke({ width: 1.5, color, alpha: 0.5 * (1 - progress) });
+          }
+        } else {
+          // 2단계: 슈웅 격발 및 아우라 소멸 (Firing Phase)
+          const fireElapsed = laser.elapsed - laser.chargingDuration;
+          const fireDuration = laser.maxDuration - laser.chargingDuration; // 0.4초
+          const progress = Math.min(1, fireElapsed / fireDuration);
+          const alpha = 1 - progress;
+
+          // 빔 격발 시점에만 효과음 1회 동기화 재생
+          if (!laser.hasFired) {
+            sound.playBeamFire(0.4);
+            laser.hasFired = true;
+          }
+
+          const outerWidth = 9 * alpha;
+          const innerWidth = 2.5 * alpha;
+
+          // 머즐 플래시 (Muzzle Flash)
+          laser.graphics.circle(org.x, org.y, 18 * alpha);
+          laser.graphics.fill({ color: 0xffffff, alpha: alpha * 0.8 });
+          laser.graphics.circle(org.x, org.y, 28 * alpha);
+          laser.graphics.fill({ color, alpha: alpha * 0.4 });
+
+          // 아우라 빔 선
+          laser.graphics.moveTo(org.x, org.y);
+          laser.graphics.lineTo(tgt.x, tgt.y);
+          laser.graphics.stroke({ width: outerWidth, color, alpha: alpha * 0.6 });
+
+          // 코어 빔 선 (흰색 레이저 코어)
+          laser.graphics.moveTo(org.x, org.y);
+          laser.graphics.lineTo(tgt.x, tgt.y);
+          laser.graphics.stroke({ width: innerWidth, color: 0xffffff, alpha: alpha * 0.95 });
+
+          // 타격지점 번쩍임 스파크 (Spark)
+          laser.graphics.circle(tgt.x, tgt.y, 10 * alpha);
+          laser.graphics.fill({ color: 0xffffff, alpha: alpha * 0.8 });
+          laser.graphics.circle(tgt.x, tgt.y, 18 * alpha);
+          laser.graphics.fill({ color, alpha: alpha * 0.4 });
+        }
       });
+
       activeLasers = activeLasers.filter((laser) => {
-        if (laser.duration <= 0) {
+        if (laser.elapsed >= laser.maxDuration) {
           effectLayer.removeChild(laser.graphics);
           laser.graphics.destroy();
           return false;
@@ -387,6 +499,9 @@ async function main() {
           effectLayer.removeChild(torp.graphics);
           torp.graphics.destroy();
           
+          // 폭발 사운드 재생
+          sound.playExplosion();
+
           // 폭발 추가
           const expG = new Graphics();
           effectLayer.addChild(expG);
@@ -458,6 +573,7 @@ async function main() {
       // 시뮬레이션 끝났는지 체크
       if (playbackTime >= duration) {
         app.ticker.remove(playTicker);
+        sound.stopThrusterLoop(); // 시뮬레이션 종료 시 추진음 해제
         finishSimulation(nextStates);
       }
     };

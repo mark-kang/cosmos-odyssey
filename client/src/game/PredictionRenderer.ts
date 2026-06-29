@@ -13,6 +13,10 @@ export class PredictionRenderer {
   private shipState: ShipState;
   private shipColor: number;
 
+  // 2.5초(25틱) 시점의 예상 함선 좌표 및 각도 캐싱 (조작 클램핑용)
+  public predicted25Pos: Vector2 = { x: 400, y: 360 };
+  public predicted25Heading: number = 0;
+
   constructor(shipState: ShipState, shipColor: number) {
     this.shipState = shipState;
     this.shipColor = shipColor;
@@ -38,22 +42,29 @@ export class PredictionRenderer {
     const dt = 1 / GAME_CONSTANTS.TICK_RATE;
 
     // 1) 관성 예측선 (Ghost Line) — 추진 없이 현재 속도만으로 미끄러지는 궤적
-    this.drawTrajectory(position, velocity, { x: 0, y: 0 }, steps, dt, 0x888888, 0.3, true);
+    this.drawTrajectory(position, velocity, { x: 0, y: 0 }, steps, dt, 0x888888, 0.3, true, heading, heading);
 
-    // 2) 조작 예측선 (Command Line) — 추진력 반영 궤적
-    this.drawTrajectory(position, velocity, thrust, steps, dt, this.shipColor, 0.8, false);
+    // 2) 조작 예측선 (Command Line) — 추진력 반영 궤적 및 25틱 시점 예측 위치/각도 캡처
+    const prediction25 = this.drawTrajectory(position, velocity, thrust, steps, dt, this.shipColor, 0.8, false, heading, targetHeading);
+    this.predicted25Pos = prediction25.position;
+    this.predicted25Heading = prediction25.heading;
 
-    // 3) 선회각 부채꼴 — heading ± MAX_TURN_ANGLE 범위
+    // 3) 빔 사격각 가이드 부채꼴 (BEAM 선택 시에만 2.5초 예상 지점에 투명 붉은색으로 렌더링)
+    if (weaponType === 'BEAM') {
+      this.drawBeamArc(this.predicted25Pos, this.predicted25Heading);
+    }
+
+    // 4) 선회각 부채꼴 — heading ± MAX_TURN_ANGLE 범위 (현재 입력 지점)
     this.drawTurnArc(position, heading);
 
-    // 4) 추진력 화살표 — 드래그 방향 표시
+    // 5) 추진력 화살표 — 드래그 방향 표시
     if (Math.abs(thrust.x) > 0.01 || Math.abs(thrust.y) > 0.01) {
       this.drawThrustArrow(position, thrust);
     }
 
-    // 5) 무기 타겟 크로스헤어
+    // 6) 무기 타겟 크로스헤어
     if (weaponTarget) {
-      this.drawCrosshair(weaponTarget, position, weaponType);
+      this.drawCrosshair(weaponTarget, this.predicted25Pos, weaponType);
     }
   }
 
@@ -63,13 +74,17 @@ export class PredictionRenderer {
     startPos: Vector2, startVel: Vector2, thrust: Vector2,
     steps: number, dt: number,
     color: number, alpha: number, dotted: boolean,
-  ): void {
+    startHeading: number, targetHeading: number
+  ): { position: Vector2; heading: number } {
     // 추진력은 턴 시작 시 한 번 적용되어 새 속도를 만듦
     const vx = startVel.x + thrust.x;
     const vy = startVel.y + thrust.y;
 
     let px = startPos.x;
     let py = startPos.y;
+
+    let p25: Vector2 = { x: px, y: py };
+    let h25 = startHeading;
 
     if (dotted) {
       // 점선: 3틱마다 작은 원
@@ -80,6 +95,10 @@ export class PredictionRenderer {
           this.graphics.circle(px, py, 2);
           this.graphics.fill({ color, alpha });
         }
+        if (i === 25) {
+          p25 = { x: px, y: py };
+          h25 = startHeading + (targetHeading - startHeading) * 0.5;
+        }
       }
     } else {
       // 실선
@@ -88,12 +107,19 @@ export class PredictionRenderer {
         px += vx * dt;
         py += vy * dt;
         this.graphics.lineTo(px, py);
+
+        if (i === 25) {
+          p25 = { x: px, y: py };
+          h25 = startHeading + (targetHeading - startHeading) * 0.5;
+        }
       }
       this.graphics.stroke({ width: 2, color, alpha });
 
       // 끝점 마커 (마름모)
       this.drawDiamond(px, py, 6, color, alpha);
     }
+
+    return { position: p25, heading: h25 };
   }
 
   private drawDiamond(x: number, y: number, size: number, color: number, alpha: number): void {
@@ -196,5 +222,17 @@ export class PredictionRenderer {
         this.graphics.stroke({ width: 1, color, alpha: 0.4 });
       }
     }
+  }
+
+  // --- 빔 발사 사정거리 및 사각 제한 부채꼴 그리기 ---
+  private drawBeamArc(position: Vector2, heading: number): void {
+    const maxAngle = GAME_CONSTANTS.BEAM_MAX_ANGLE;
+    const radius = GAME_CONSTANTS.BEAM_MAX_RANGE; // 사거리 600px
+
+    this.graphics.moveTo(position.x, position.y);
+    this.graphics.arc(position.x, position.y, radius, heading - maxAngle, heading + maxAngle);
+    this.graphics.closePath();
+    this.graphics.fill({ color: 0xff4444, alpha: 0.04 }); // 옅은 붉은색 투명 영역 채우기
+    this.graphics.stroke({ width: 1, color: 0xff4444, alpha: 0.15 }); // 붉은색 외곽선 호
   }
 }

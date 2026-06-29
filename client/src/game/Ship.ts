@@ -1,12 +1,13 @@
-import { Graphics } from 'pixi.js';
+import { Container, Sprite } from 'pixi.js';
 import type { ShipState } from '@shared/types';
 
 // ============================================================
-// Ship: 함선 클래스 (Graphics + ShipState 래핑)
+// Ship: 함선 클래스 (Container + Sprite + ShipState 래핑)
 // ============================================================
 
 export class Ship {
-  public readonly graphics: Graphics;
+  public readonly graphics: Container; // 하위 호환성을 위해 이름을 graphics로 유지하되 Container 타입으로 정의
+  public readonly sprite: Sprite;
   public state: ShipState;
   public readonly id: string;
   public readonly color: number;
@@ -20,30 +21,35 @@ export class Ship {
       heading: initialState.heading,
       hp: initialState.hp,
     };
-    this.graphics = this.createGraphics();
+    
+    // 컨테이너 및 스프라이트 생성
+    this.graphics = new Container();
+    this.sprite = this.createSprite();
+    this.graphics.addChild(this.sprite);
+    
     this.syncGraphics();
   }
 
-  /** 함선 외형 생성 (사각형 본체 + 삼각형 노즈 + 엔진 글로우) */
-  private createGraphics(): Graphics {
-    const g = new Graphics();
+  /** 함선 스프라이트 에셋 생성 및 정렬 보정 */
+  private createSprite(): Sprite {
+    const isPlayerA = this.id === 'playerA';
+    const texturePath = isPlayerA ? '/assets/ship_blue.png' : '/assets/ship_red.png';
+    const sprite = Sprite.from(texturePath);
+    
+    // 중앙 피벗 설정
+    sprite.anchor.set(0.5, 0.5);
+    
+    // 검은색 배경 투명화 및 발광 효과 극대화를 위한 스크린 블렌드 모드 적용
+    sprite.blendMode = 'screen';
+    
+    // 적절한 스케일 적용 (2D 탑다운 전투기는 가로/세로 64px 정사각형에 맞게 스케일링)
+    sprite.width = 64;
+    sprite.height = 64;
+    
+    // 2D 이미지의 기수 정면이 3시 방향(0도)을 향하고 있으므로 정렬 회전 오프셋은 0입니다.
+    sprite.rotation = 0;
 
-    // 함선 본체 (40×20 사각형, 원점 중심)
-    g.rect(-20, -10, 40, 20);
-    g.fill({ color: this.color, alpha: 0.9 });
-
-    // 함선 노즈 (전방 방향 표시 삼각형)
-    g.moveTo(20, -8);
-    g.lineTo(32, 0);
-    g.lineTo(20, 8);
-    g.closePath();
-    g.fill({ color: 0xffffff, alpha: 0.7 });
-
-    // 엔진 글로우 (후방 표시)
-    g.rect(-24, -6, 4, 12);
-    g.fill({ color: 0xff6644, alpha: 0.6 });
-
-    return g;
+    return sprite;
   }
 
   /** 화면 경계 내로 클램핑된 시각적 위치 반환 */
@@ -57,7 +63,7 @@ export class Ship {
     };
   }
 
-  /** ShipState의 position/heading을 Graphics에 동기화 */
+  /** ShipState의 position/heading을 Graphics(Container)에 동기화 */
   syncGraphics(): void {
     const pos = this.visualPosition;
     this.graphics.x = pos.x;

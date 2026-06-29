@@ -30,6 +30,10 @@ export const GAME_CONSTANTS = {
   MAP_HEIGHT: 720,
   /** 화면 이탈 시 초당 대미지 패널티 */
   OUT_OF_BOUNDS_DAMAGE_PER_SECOND: 10,
+  /** 직사 빔 최대 사정거리 */
+  BEAM_MAX_RANGE: 600,
+  /** 직사 빔 최대 발사 사각 (라디안, 좌우 30도) */
+  BEAM_MAX_ANGLE: Math.PI / 6,
 } as const;
 
 // --- 함선 상태 ---

@@ -64,6 +64,36 @@ function distToSegment(p: Vector2, a: Vector2, b: Vector2): number {
   return dist(p, projection);
 }
 
+// 빔의 사정거리 및 발사 각도(사각) 클램핑 보정
+function clampBeamTarget(origin: Vector2, heading: number, target: Vector2): Vector2 {
+  const dx = target.x - origin.x;
+  const dy = target.y - origin.y;
+  const d = Math.sqrt(dx * dx + dy * dy);
+
+  if (d === 0) return { ...origin };
+
+  const targetAngle = Math.atan2(dy, dx);
+  let diff = targetAngle - heading;
+
+  // [-PI, PI] 범위로 편차 정규화
+  while (diff < -Math.PI) diff += Math.PI * 2;
+  while (diff > Math.PI) diff -= Math.PI * 2;
+
+  const maxAngle = GAME_CONSTANTS.BEAM_MAX_ANGLE;
+  const maxRange = GAME_CONSTANTS.BEAM_MAX_RANGE;
+
+  let finalAngle = targetAngle;
+  if (Math.abs(diff) > maxAngle) {
+    finalAngle = heading + Math.sign(diff) * maxAngle;
+  }
+
+  const finalRange = Math.min(d, maxRange);
+  return {
+    x: origin.x + Math.cos(finalAngle) * finalRange,
+    y: origin.y + Math.sin(finalAngle) * finalRange,
+  };
+}
+
 // ============================================================
 // 핵심 물리 시뮬레이터 (5.0초, 50틱)
 // ============================================================
@@ -215,32 +245,34 @@ function runSimulation(
     // 2) 빔 (BEAM) 사격 및 충돌 판정 (2.5초 / tick 25에 실행)
     if (tick === 25) {
       if (beamA) {
+        const clampedTarget = clampBeamTarget(stateA.position, stateA.heading, beamA.target);
         timeline.push({
           time,
           event: 'FIRE',
           shipId: 'playerA',
           weaponType: 'BEAM',
           origin: { ...stateA.position },
-          target: { ...beamA.target },
+          target: clampedTarget,
         });
         // 충돌 판정 (상대선 B와의 거리)
-        const d = distToSegment(stateB.position, stateA.position, beamA.target);
+        const d = distToSegment(stateB.position, stateA.position, clampedTarget);
         if (d <= 25) {
           stateB.hp = Math.max(0, stateB.hp - 25);
           timeline.push({ time, event: 'HIT', targetId: 'playerB', damage: 25 });
         }
       }
       if (beamB) {
+        const clampedTarget = clampBeamTarget(stateB.position, stateB.heading, beamB.target);
         timeline.push({
           time,
           event: 'FIRE',
           shipId: 'playerB',
           weaponType: 'BEAM',
           origin: { ...stateB.position },
-          target: { ...beamB.target },
+          target: clampedTarget,
         });
         // 충돌 판정 (상대선 A와의 거리)
-        const d = distToSegment(stateA.position, stateB.position, beamB.target);
+        const d = distToSegment(stateA.position, stateB.position, clampedTarget);
         if (d <= 25) {
           stateA.hp = Math.max(0, stateA.hp - 25);
           timeline.push({ time, event: 'HIT', targetId: 'playerA', damage: 25 });
