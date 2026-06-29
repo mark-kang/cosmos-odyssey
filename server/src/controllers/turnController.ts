@@ -81,6 +81,9 @@ function runSimulation(
   const stateA: ShipState = JSON.parse(JSON.stringify(startStates.playerA));
   const stateB: ShipState = JSON.parse(JSON.stringify(startStates.playerB));
 
+  let oobTicksA = 0;
+  let oobTicksB = 0;
+
   // 1) 추진력 반영 (속도 갱신 - 턴 시작 시 1회 적용)
   stateA.velocity.x += commandA.thrust.x;
   stateA.velocity.y += commandA.thrust.y;
@@ -146,6 +149,46 @@ function runSimulation(
     stateA.position.y += stateA.velocity.y * dt;
     stateB.position.x += stateB.velocity.x * dt;
     stateB.position.y += stateB.velocity.y * dt;
+
+    // 이탈 체크 (Player A)
+    const isOobA = stateA.position.x < 0 || stateA.position.x > GAME_CONSTANTS.MAP_WIDTH ||
+                   stateA.position.y < 0 || stateA.position.y > GAME_CONSTANTS.MAP_HEIGHT;
+    if (isOobA) {
+      oobTicksA++;
+      if (oobTicksA % 10 === 0) {
+        stateA.hp = Math.max(0, stateA.hp - 10);
+        timeline.push({ time, event: 'HIT', targetId: 'playerA', damage: 10 });
+      }
+    } else {
+      if (oobTicksA > 0) {
+        const remainingDmg = oobTicksA % 10;
+        if (remainingDmg > 0) {
+          stateA.hp = Math.max(0, stateA.hp - remainingDmg);
+          timeline.push({ time, event: 'HIT', targetId: 'playerA', damage: remainingDmg });
+        }
+        oobTicksA = 0;
+      }
+    }
+
+    // 이탈 체크 (Player B)
+    const isOobB = stateB.position.x < 0 || stateB.position.x > GAME_CONSTANTS.MAP_WIDTH ||
+                   stateB.position.y < 0 || stateB.position.y > GAME_CONSTANTS.MAP_HEIGHT;
+    if (isOobB) {
+      oobTicksB++;
+      if (oobTicksB % 10 === 0) {
+        stateB.hp = Math.max(0, stateB.hp - 10);
+        timeline.push({ time, event: 'HIT', targetId: 'playerB', damage: 10 });
+      }
+    } else {
+      if (oobTicksB > 0) {
+        const remainingDmg = oobTicksB % 10;
+        if (remainingDmg > 0) {
+          stateB.hp = Math.max(0, stateB.hp - remainingDmg);
+          timeline.push({ time, event: 'HIT', targetId: 'playerB', damage: remainingDmg });
+        }
+        oobTicksB = 0;
+      }
+    }
 
     // 선회 보간 (50틱 동안 부드럽게 목표 방향으로 각도 변경)
     stateA.heading = startHeadingA + (commandA.targetHeading - startHeadingA) * (tick / totalTicks);
@@ -221,6 +264,22 @@ function runSimulation(
         stateA.hp = Math.max(0, stateA.hp - damage);
         timeline.push({ time, event: 'HIT', targetId: 'playerA', damage });
       }
+    }
+  }
+
+  // 50틱 루프가 끝난 뒤 최종 잔여 이탈 틱 정산
+  if (oobTicksA > 0) {
+    const remainingDmg = oobTicksA % 10;
+    if (remainingDmg > 0) {
+      stateA.hp = Math.max(0, stateA.hp - remainingDmg);
+      timeline.push({ time: 5.0, event: 'HIT', targetId: 'playerA', damage: remainingDmg });
+    }
+  }
+  if (oobTicksB > 0) {
+    const remainingDmg = oobTicksB % 10;
+    if (remainingDmg > 0) {
+      stateB.hp = Math.max(0, stateB.hp - remainingDmg);
+      timeline.push({ time: 5.0, event: 'HIT', targetId: 'playerB', damage: remainingDmg });
     }
   }
 

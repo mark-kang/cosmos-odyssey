@@ -117,18 +117,29 @@ async function main() {
 
   commandInput.onCommandChange = () => {
     prediction.update(
+      myShip.state,
       commandInput.thrust,
       commandInput.targetHeading,
       commandInput.weaponTarget,
       commandInput.weaponType
     );
+    hud.updateWeapon(commandInput.weaponType);
   };
 
   // --- 6. HUD 초기화 ---
   const hud = new HUD();
   hud.updateHP(shipA.state, shipB.state);
   hud.updateVelocity(myShip.state.velocity);
+  hud.updateWeapon(commandInput.weaponType);
   hud.setPhase(`명령 입력 중 [Turn ${turnNumber}]`);
+
+  // 무기 화살표 클릭 핸들러
+  hud.onPrevWeaponClick = () => {
+    commandInput.setWeaponType('BEAM');
+  };
+  hud.onNextWeaponClick = () => {
+    commandInput.setWeaponType('TORPEDO');
+  };
 
   // 제출 버튼 핸들러
   hud.onSubmitClick = () => {
@@ -206,6 +217,7 @@ async function main() {
     prediction.graphics.visible = true;
     commandInput.reset();
     hud.updateVelocity(myShip.state.velocity);
+    hud.updateWeapon(commandInput.weaponType);
     hud.setPhase(`명령 입력 중 [Turn ${turnNumber}]`);
   }
 
@@ -419,11 +431,13 @@ async function main() {
           x: (Math.random() - 0.5) * 12,
           y: (Math.random() - 0.5) * 12,
         };
-        shipA.graphics.x = shipA.state.position.x + shakeOffsetA.x;
-        shipA.graphics.y = shipA.state.position.y + shakeOffsetA.y;
+        const pos = shipA.visualPosition;
+        shipA.graphics.x = pos.x + shakeOffsetA.x;
+        shipA.graphics.y = pos.y + shakeOffsetA.y;
       } else {
-        shipA.graphics.x = shipA.state.position.x;
-        shipA.graphics.y = shipA.state.position.y;
+        const pos = shipA.visualPosition;
+        shipA.graphics.x = pos.x;
+        shipA.graphics.y = pos.y;
       }
 
       if (shakeDurationB > 0) {
@@ -432,11 +446,13 @@ async function main() {
           x: (Math.random() - 0.5) * 12,
           y: (Math.random() - 0.5) * 12,
         };
-        shipB.graphics.x = shipB.state.position.x + shakeOffsetB.x;
-        shipB.graphics.y = shipB.state.position.y + shakeOffsetB.y;
+        const pos = shipB.visualPosition;
+        shipB.graphics.x = pos.x + shakeOffsetB.x;
+        shipB.graphics.y = pos.y + shakeOffsetB.y;
       } else {
-        shipB.graphics.x = shipB.state.position.x;
-        shipB.graphics.y = shipB.state.position.y;
+        const pos = shipB.visualPosition;
+        shipB.graphics.x = pos.x;
+        shipB.graphics.y = pos.y;
       }
 
       // 시뮬레이션 끝났는지 체크
@@ -528,11 +544,22 @@ async function main() {
     // 점검: 재생 단계가 아닐 때만 예측선 그리기
     if (prediction.graphics.visible) {
       prediction.update(
+        myShip.state,
         commandInput.thrust,
         commandInput.targetHeading,
         commandInput.weaponTarget,
         commandInput.weaponType
       );
+
+      // OOB 이탈 실시간 경고 체크
+      const MAP_WIDTH = 1280;
+      const MAP_HEIGHT = 720;
+      const pos = myShip.state.position;
+      const isOob = pos.x < 0 || pos.x > MAP_WIDTH || pos.y < 0 || pos.y > MAP_HEIGHT;
+      hud.setOOBWarning(isOob);
+    } else {
+      // 재생 중일 때나 대기 단계에서는 경고 오버레이를 끕니다.
+      hud.setOOBWarning(false);
     }
   });
 

@@ -46,17 +46,30 @@ export class Ship {
     return g;
   }
 
+  /** 화면 경계 내로 클램핑된 시각적 위치 반환 */
+  get visualPosition(): { x: number; y: number } {
+    const margin = 20; // 캔버스 내 마진
+    const MAP_WIDTH = 1280;
+    const MAP_HEIGHT = 720;
+    return {
+      x: Math.max(margin, Math.min(MAP_WIDTH - margin, this.state.position.x)),
+      y: Math.max(margin, Math.min(MAP_HEIGHT - margin, this.state.position.y)),
+    };
+  }
+
   /** ShipState의 position/heading을 Graphics에 동기화 */
   syncGraphics(): void {
-    this.graphics.x = this.state.position.x;
-    this.graphics.y = this.state.position.y;
+    const pos = this.visualPosition;
+    this.graphics.x = pos.x;
+    this.graphics.y = pos.y;
     this.graphics.rotation = this.state.heading;
   }
 
   /** 특정 좌표가 함선 히트 영역 내인지 판정 (원형 근사) */
   isPointInside(x: number, y: number, radius: number = 40): boolean {
-    const dx = x - this.state.position.x;
-    const dy = y - this.state.position.y;
+    const pos = this.visualPosition;
+    const dx = x - pos.x;
+    const dy = y - pos.y;
     return dx * dx + dy * dy <= radius * radius;
   }
 }

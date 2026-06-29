@@ -84,24 +84,130 @@
 ### 세부 설계 (Core Logic)
 
 #### 1. 서버 사이드: 물리 및 턴 처리 로직 (Node.js)
-서버는 시뮬레이션 틱(예: 1초에 10번 계산, 5초 동안 총 50틱)을 돌리며 좌표를 추적합니다.
+서버는 시뮬레이션 틱(1초에 10번 계산, 5초 동안 총 50틱, $dt = 0.1\text{s}$)을 돌리며 좌표를 추적하고, 동시 물리 계산 결과를 클라이언트에 내려줍니다.
 
-* **함선 상태 데이터 구조 (State):**
-```typescript
-interface ShipState {
-  position: { x: number, y: number }; // 현재 좌표
-  velocity: { x: number, y: number }; // 현재 속도 벡터
-  heading: number;                   // 현재 바라보는 각도 (라디안)
-}
-```
+* **맵 및 함선 기초 상수:**
+  * **전장(맵) 크기:** $1280 \times 720 \text{ px}$
+  * **Player A 초기 상태:** 위치 `(400, 360)`, 속도 `(0, 0)`, 각도 `0` (라디안, 우측 방향), HP `100`
+  * **Player B 초기 상태:** 위치 `(880, 360)`, 속도 `(0, 0)`, 각도 `\pi` (라디안, 좌측 방향), HP `100`
+  * **최대 HP:** `100`
+  * **최대 선회각 제한:** $MAX\_TURN\_ANGLE = \pi / 3 \text{ rad}$ (한 턴 동안 약 60도 이상 선회 불가)
+  * **최대 추진력 크기:** $8.0 \text{ px/s^2}$ (가중 벡터 크기 제한)
+  * **추진력 조작 스케일:** $THRUST\_SCALE = 0.05$ (마우스 드래그 $1\text{px}$당 $0.05$ 추진력 적용)
 
-* **물리 계산 공식 (Vector Math):**
-  * 새로운 속도 $V_{new} = V_{old} + \text{추진력 벡터}$
-  * 새로운 위치 $P_{new} = P_{old} + V_{new}$
-  * 선회각 제한 체크: $\lvert\text{목표 각도} - \text{현재 각도}\rvert \le \text{최대 선회각}$ 인지 검증하여 치팅 방지.
+* **물리 계산 공식 (Vector Math) - 매 틱 ($dt=0.1$초) 수행:**
+  * **속도 업데이트:** 턴 시작 틱(0초)에 한 번만 가해진 추진력($T$)을 더해 가속합니다.
+    * $V_{new} = V_{old} + T$
+  * **위치 이동:** 매 틱당 속도에 $dt$를 곱해 누적합니다.
+    * $P_{new} = P_{old} + V_{new} \times dt$
+  * **선회각 제한 및 부드러운 보간 (Interpolation):**
+    * 목표 각도 검증: $\lvert\text{목표 각도} - \text{현재 각도}\rvert \le MAX\_TURN\_ANGLE$ (라디안 범위 정규화 후 검사)
+    * 각 틱(1~50틱)에서 회전 각도는 선형 보간됩니다.
+    * $\theta_{tick} = \theta_{start} + (\theta_{target} - \theta_{start}) \times \frac{tick}{50}$
 
-#### 2. 클라이언트 사이드: UI/UX 및 연출 (Unity)
+* **무기 시스템 및 피격/데미지 충돌 판정:**
+  * **직사 빔 (BEAM):**
+    * **사격 시점:** 시뮬레이션 타임라인의 절반인 **2.5초 (25틱)**에 즉시 격발.
+    * **사격 형태:** 사격 시점의 함선 원점 $P_{beam}$에서 명령받은 $Target$ 좌표까지의 **선분(Segment)**.
+    * **피격 판정:** 적 함선의 중심 $P_{enemy}$와 빔 사격 선분 사이의 최단 거리가 **$25\text{px}$ 이하**일 때 피격 판정.
+    * **대미지:** 고정 **$25$ 대미지** (피격 즉시 체력 차감, $HP = \max(0, HP - 25)$).
+  * **범위 어뢰 (TORPEDO):**
+    * **발사 시점:** 턴 시작 **0.0초 (0틱)**에 함선 원점 $P_{launch}$에서 격발 및 비행 시작.
+    * **비행 속도:** 고정 초당 $150\text{px}$ ($150\text{px/s}$).
+    * **폭발 시점 및 좌표:** $P_{launch}$에서 $Target$ 조준점까지의 거리 $d$에 대해 비행 시간 $t_{flight} = d / 150$ 계산.
+      * $t_{flight} \le 5.0$초인 경우: $t_{flight}$초를 반올림하여 $0.1$초 단위로 매칭되는 틱에서 **$Target$ 조준점 좌표**에서 즉시 폭발.
+      * $t_{flight} > 5.0$초인 경우: 5.0초가 되었을 때의 최종 도달 가상 좌표에서 강제 폭발.
+    * **피격 판정:** 폭발 틱에 적 함선의 중심 $P_{enemy}$와 어뢰 폭발 좌표 $P_{expl}$ 사이의 거리가 **$60\text{px}$ 이하**일 때 피격 판정.
+    * **대미지:** 거리에 반비례하는 선형 감쇠 적용.
+      * $Damage = \text{Math.round}(40 \times (1 - \frac{\text{거리}}{60}))$ (최대 40 대미지).
+
+#### 2. 클라이언트 사이드: UI/UX 및 연출 (Unity/HTML5 Canvas)
 유저에게 스트레스를 주지 않는 친절한 UI 가이드가 심리전의 핵심입니다.
 
-* **예측 가이드선 UI:** 플레이어가 추진력 게이지를 올리거나 조타 핸들을 돌릴 때, "아무런 외력이 없을 때 미끄러지는 예상 잔상(Ghost)"과 "조작이 반영된 최종 예상 위치"를 실시간으로 화면에 선(LineRenderer)으로 그려줍니다.
-* **결과 연출 시퀀서 (Sequence Parser):** 서버에서 응답받은 데이터가 `[{time: 1.2, event: "MOVE", x: 12, y: 15}, {time: 3.0, event: "FIRE", type: "BEAM"}, {time: 3.1, event: "HIT", damage: 20}]` 와 같은 형태라면, 클라이언트는 `DOTween`을 이용해 해당 타임코드에 맞춰 이벤트를 순차 실행합니다.
+* **함선 선택 충돌체 (Hit Area):** 마우스 좌클릭으로 함선을 감지하는 반경은 시각적 중심 기준 **$40\text{px}$**입니다.
+* **예측 가이드선 UI:** 플레이어가 드래그 조작을 할 때 다음 정보를 실시간으로 화면에 계산해 그립니다.
+  * **관성 예측선 (Dotted line):** 추진력이 $0$일 때 현재 $V_{old}$ 속도만으로 50틱 동안 흘러가는 예상 잔상 궤적.
+  * **조작 예측선 (Solid line):** 설정한 추진력 $T$가 반영된 새로운 $V_{new}$ 속도로 이동하는 궤적 및 최종 도착 위치 마커.
+* **결과 연출 시퀀서 (Sequence Parser):** 서버에서 응답받은 데이터가 `[{time: 1.2, event: "MOVE", x: 12, y: 15}, {time: 3.0, event: "FIRE", type: "BEAM"}, {time: 3.1, event: "HIT", damage: 20}]` 와 같은 형태라면, 클라이언트는 `DOTween` 또는 Ticker deltaMS 프레임 타임라인을 이용해 해당 타임코드에 맞춰 이동, 격발, 흔들림 및 폭발 연출을 순차적으로 수행합니다.
+
+#### 3. 서버-클라이언트 API 통신 프로토콜 명세 (REST API)
+
+* **1) POST `/api/turn/submit` (명령 제출)**
+  * **Request Body (JSON):**
+    ```json
+    {
+      "playerId": "playerA" | "playerB",
+      "turnNumber": number,
+      "thrust": { "x": number, "y": number },
+      "targetHeading": number,
+      "weapons": [
+        {
+          "type": "BEAM" | "TORPEDO",
+          "target": { "x": number, "y": number }
+        }
+      ]
+    }
+    ```
+  * **Response (JSON):**
+    * *상대방 대기 중일 때:* `{"status": "waiting", "message": "Waiting for opponent", "simulation": []}`
+    * *두 유저 제출 완료 및 시뮬레이션 계산 끝났을 때:* 
+      ```json
+      {
+        "status": "success",
+        "message": "Simulation completed",
+        "simulation": [
+          { "time": 0.0, "event": "START", "info": "시뮬레이션 시작" },
+          { "time": 0.1, "event": "MOVE", "shipId": "playerA", "x": 405.2, "y": 360, "heading": 0.05 },
+          { "time": 2.5, "event": "FIRE", "shipId": "playerA", "weaponType": "BEAM", "origin": {"x": 520, "y": 360}, "target": {"x": 800, "y": 360} },
+          { "time": 2.5, "event": "HIT", "targetId": "playerB", "damage": 25 },
+          { "time": 5.0, "event": "END", "info": "시뮬레이션 종료" }
+        ],
+        "nextStates": {
+          "playerA": { "position": {"x": 600, "y": 360}, "velocity": {"x": 5.2, "y": 0}, "heading": 0.5, "hp": 100 },
+          "playerB": { "position": {"x": 800, "y": 360}, "velocity": {"x": -3, "y": 0}, "heading": 2.8, "hp": 75 }
+        }
+      }
+      ```
+
+* **2) GET `/api/turn/status?playerId=...&turnNumber=...` (대기 폴링)**
+  * **Response (JSON):** `/api/turn/submit` 응답 구조와 동일 (대기중일 때는 `waiting`, 완료되었으면 즉시 `success` 시뮬레이션 데이터를 반환).
+
+* **3) POST `/api/turn/reset` (게임 초기화)**
+  * **Response (JSON):** `{"status": "success", "message": "Game reset complete", "initialStates": { "playerA": {...}, "playerB": {...} }}`
+
+* **4) GET `/api/turn/state` (초기 턴 상태 로드)**
+  * **Response (JSON):** `{"status": "success", "turnNumber": number, "ships": { "playerA": {...}, "playerB": {...} }}`
+
+---
+
+## 5. 추가 구현 및 개선 사양
+
+### 전투 구역(화면) 이탈 처리 사양 (Out-of-Bounds Damage & Visual Clamping)
+전투가 벌어지는 기본 구역(1280x720 캔버스)을 벗어나는 기동을 전술적으로는 허용하되, 함선 분실을 막고 불이익을 명확히 부여하기 위해 아래 시스템을 적용했습니다.
+
+1. **시각적 위치 클램핑 (Visual Clamping):**
+   * 함선의 실제 물리적 위치 좌표는 화면 바깥 영역으로 제한 없이 나갈 수 있도록 보존합니다. (이를 통해 화면 밖 궤적 판정 및 무기 사격 판정이 정확하게 동작합니다.)
+   * 단, 화면 밖으로 나간 함선의 조작성 유지를 위해 클라이언트 화면 렌더링 좌표는 화면 가장자리(20px 안쪽 마진)로 클램핑하여 고정시킵니다.
+   * 예측 조작선 및 선회각 부채꼴(각도기), 드래그 시작점 역시 이 클램핑된 시각적 위치에 매칭되어 그려지므로 화면 밖에서도 함선을 드래그하여 화면 안으로 되돌리는 조작이 가능합니다.
+2. **이탈 위험 경고 UI (OOB Warning HUD):**
+   * 조작 대상 함선이 화면을 벗어날 때 상단에 `⚠️ OUT OF BOUNDS WARNING! (HP DAMAGE ACTIVE)` 경고 오버레이 패널이 깜빡이며 실시간으로 시각적 경고를 줍니다.
+   * 이 경고 패널 및 상단 HP 패널 등 클릭 상호작용이 불필요한 모든 HUD 구성 요소는 `pointer-events: none;`을 적용하여 마우스 이벤트를 통과(Pass-through)시켜 함선 조작을 절대 방해하지 않습니다.
+3. **이탈 패널티 대미지 (DoT Damage):**
+   * 서버 물리 연산 루프(50틱, 5.0초)에서 매 틱(0.1초)마다 함선들의 경계 이탈 여부를 감시합니다.
+   * 10틱(1.0초) 연속 이탈 시마다 `HP 10` 차감과 함께 타임라인에 피격(`HIT`) 이벤트를 누적 기록합니다.
+   * 턴 종료 시점에 정산되지 않고 남아 있는 잔여 이탈 틱이 있다면 비례 대미지(예: 7틱 이탈 = 7 대미지)를 최종 정산하여 5.0초 시점에 `HIT` 이벤트로 적용합니다.
+
+### HUD 무기 장착 상태 가시화 및 마우스 조작 사양
+유저가 단축키 또는 마우스 클릭을 통해 무기를 변경할 때 현재 장착된 무기가 무엇인지 HUD 상에 직관적으로 표시하고 조작할 수 있게 합니다.
+
+1. **실시간 정보 연동 및 마우스 조작:**
+   * 상단 중앙 정보판(`.info-center`)에 현재 선택된 무기 정보 텍스트(`.weapon-text`)와 좌우 화살표 버튼이 노출됩니다.
+   * 키보드 단축키 `1`/`2` 또는 **좌우 화살표 마우스 클릭**을 통해 무기를 양방향으로 바꿀 수 있습니다.
+   * 무기 유형에 따라 글자 및 화살표 색상이 실시간으로 변경됩니다.
+     * **직사 빔 (BEAM):** 붉은색 (`#ff4444`) 텍스트로 전환
+     * **범위 어뢰 (TORPEDO):** 주황색 (`#ffaa00`) 텍스트로 전환
+2. **선택 상태에 따른 화살표 노출 조건:**
+   * **1번 무기 (BEAM) 선택 중:** 더 이상 왼쪽으로 갈 수 없으므로 왼쪽 화살표(`<`)를 화면에서 숨김(`visibility: hidden`) 처리합니다.
+   * **가장 끝번 무기 (TORPEDO) 선택 중:** 더 이상 오른쪽으로 갈 수 없으므로 오른쪽 화살표(`>`)를 화면에서 숨김(`visibility: hidden`) 처리합니다.
+3. **상태 초기화 보존:**
+   * 게임 첫 매칭 로드 시점, 턴이 넘어가서 새로운 입력 단계로 전환(리셋)되는 시점에도 함선의 초기 무기 장착 정보를 HUD 상에 동기화하여 일관성 있게 보여줍니다.

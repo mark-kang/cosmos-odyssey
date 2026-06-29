@@ -24,6 +24,12 @@ export const GAME_CONSTANTS = {
   MAX_TURN_ANGLE: Math.PI / 3,
   /** 함선 기본 HP */
   DEFAULT_HP: 100,
+  /** 맵 가로 크기 */
+  MAP_WIDTH: 1280,
+  /** 맵 세로 크기 */
+  MAP_HEIGHT: 720,
+  /** 화면 이탈 시 초당 대미지 패널티 */
+  OUT_OF_BOUNDS_DAMAGE_PER_SECOND: 10,
 } as const;
 
 // --- 함선 상태 ---

@@ -20,10 +20,20 @@ export class PredictionRenderer {
   }
 
   /** 매 프레임 호출: 예측 시각화를 다시 그림 */
-  update(thrust: Vector2, targetHeading: number, weaponTarget: Vector2 | null, weaponType: 'BEAM' | 'TORPEDO' = 'BEAM'): void {
+  update(shipState: ShipState, thrust: Vector2, targetHeading: number, weaponTarget: Vector2 | null, weaponType: 'BEAM' | 'TORPEDO' = 'BEAM'): void {
     this.graphics.clear();
+    this.shipState = shipState;
 
-    const { position, velocity, heading } = this.shipState;
+    // 시각적 드로잉을 위한 클램핑된 기준 위치 계산
+    const margin = 20;
+    const MAP_WIDTH = 1280;
+    const MAP_HEIGHT = 720;
+    const position = {
+      x: Math.max(margin, Math.min(MAP_WIDTH - margin, this.shipState.position.x)),
+      y: Math.max(margin, Math.min(MAP_HEIGHT - margin, this.shipState.position.y)),
+    };
+
+    const { velocity, heading } = this.shipState;
     const steps = GAME_CONSTANTS.TOTAL_TICKS;
     const dt = 1 / GAME_CONSTANTS.TICK_RATE;
 

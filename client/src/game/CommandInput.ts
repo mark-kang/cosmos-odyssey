@@ -95,7 +95,7 @@ export class CommandInput {
     if (!this.isDragging) return;
 
     const { x, y } = e.global;
-    const shipPos = this.playerShip.state.position;
+    const shipPos = this.playerShip.visualPosition;
 
     // 추진력 벡터 계산 (드래그 거리 × 스케일)
     let tx = (x - shipPos.x) * THRUST_SCALE;
