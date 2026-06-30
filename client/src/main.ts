@@ -6,7 +6,16 @@ import { PredictionRenderer } from './game/PredictionRenderer';
 import { HUD } from './ui/HUD';
 import { sound } from './game/SoundManager';
 
-const SERVER_URL = 'http://localhost:3000';
+// 접속한 기기의 호스트 IP를 기반으로 백엔드 서버 URL 동적 감지
+// 모바일 하이브리드 앱(Capacitor 웹뷰)에서는 호스트가 'localhost'로 감지되므로,
+// 실기기 네이티브 테스트 시에는 아래 fallback IP를 로컬 PC(리눅스 서버)의 실제 사설 IP(예: 192.168.x.x)로 지정해 줍니다.
+const host = window.location.hostname;
+// 로컬 네트워크 사설 IP 정보 노출 방지를 위해 .env.local 환경 변수에서 동적 로드
+const MOBILE_FALLBACK_IP = import.meta.env.VITE_MOBILE_FALLBACK_IP || 'localhost';
+
+const SERVER_URL = (host === 'localhost' || host === '127.0.0.1' || !host)
+  ? `http://${host || MOBILE_FALLBACK_IP}:3000`
+  : `${window.location.protocol}//${host}:3000`;
 
 // ============================================================
 // 별밭 및 그리드 헬퍼
