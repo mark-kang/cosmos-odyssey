@@ -1,0 +1,6 @@
+{
+  "appId": "com.cosmos.odyssey",
+  "appName": "Cosmos Odyssey",
+  "webDir": "dist",
+  "bundledWebRuntime": false
+}

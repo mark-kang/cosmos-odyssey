@@ -56,7 +56,35 @@ async function main() {
     background: '#060a1a',
     antialias: true,
   });
-  document.body.appendChild(app.canvas);
+
+  const appContainer = document.getElementById('app-container');
+  if (appContainer) {
+    appContainer.appendChild(app.canvas);
+  } else {
+    document.body.appendChild(app.canvas);
+  }
+
+  // 모바일/브라우저 해상도 맞춤 반응형 레터박스 스케일러 (세로 모드 시 자동 90도 회전 피팅)
+  function resizeGame() {
+    if (!appContainer) return;
+    const winW = window.innerWidth;
+    const winH = window.innerHeight;
+
+    const isPortrait = winH > winW;
+
+    if (isPortrait) {
+      // 세로 화면일 때는 기기를 가로로 뉘여서 하도록 90도 회전 및 translate 정중앙 정렬 매핑
+      const scale = Math.min(winH / 1280, winW / 720);
+      appContainer.style.transform = `translate(-50%, -50%) rotate(90deg) scale(${scale})`;
+    } else {
+      // 가로 화면일 때는 정상 정방향 배율 및 translate 정중앙 정렬 매핑
+      const scale = Math.min(winW / 1280, winH / 720);
+      appContainer.style.transform = `translate(-50%, -50%) rotate(0deg) scale(${scale})`;
+    }
+  }
+
+  window.addEventListener('resize', resizeGame);
+  resizeGame(); // 초기 로딩 시 뷰포트 배율 설정 적용
 
   // --- 에셋 사전 로드 (Preload Assets) ---
   await Assets.load([

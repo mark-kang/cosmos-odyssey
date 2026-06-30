@@ -24,6 +24,10 @@ export class CommandInput {
   // --- 2.5초 시점 예상 함선 상태 (클램핑 기준점) ---
   private predicted25State = { position: { x: 400, y: 360 }, heading: 0 };
 
+  // --- 터치 트랙킹 상태 ---
+  private pointerDownPos: Vector2 | null = null;
+  private pointerDownTime: number = 0;
+
   // --- 드래그 상태 ---
   private isDragging = false;
 
@@ -137,8 +141,12 @@ export class CommandInput {
   }
 
   private onPointerDown(e: FederatedPointerEvent): void {
-    if (e.button !== 0) return; // 좌클릭만
+    if (e.button !== 0) return; // 좌클릭/터치만
     const { x, y } = e.global;
+
+    this.pointerDownPos = { x, y };
+    this.pointerDownTime = Date.now();
+
     if (this.playerShip.isPointInside(x, y)) {
       this.isDragging = true;
     }
@@ -172,8 +180,32 @@ export class CommandInput {
     this.onCommandChange?.();
   }
 
-  private onPointerUp(_e: FederatedPointerEvent): void {
+  private onPointerUp(e: FederatedPointerEvent): void {
+    const { x, y } = e.global;
+
+    // 탭 판정: 유지 시간 250ms 이하 & 이동 거리 8px 미만
+    if (this.pointerDownPos) {
+      const dx = x - this.pointerDownPos.x;
+      const dy = y - this.pointerDownPos.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const duration = Date.now() - this.pointerDownTime;
+
+      const isTap = duration < 250 && dist < 8;
+
+      // 함선 밖을 탭했을 경우 무기 조준점으로 설정
+      if (isTap && !this.playerShip.isPointInside(x, y)) {
+        const rawTarget = { x, y };
+        if (this._weaponType === 'BEAM') {
+          this._weaponTarget = this.clampBeamTarget(rawTarget);
+        } else {
+          this._weaponTarget = rawTarget;
+        }
+        this.onCommandChange?.();
+      }
+    }
+
     this.isDragging = false;
+    this.pointerDownPos = null;
   }
 
   // --- 선회각 제한 ---

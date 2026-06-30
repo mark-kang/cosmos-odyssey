@@ -73,7 +73,12 @@ export class HUD {
     const style = document.createElement('style');
     style.textContent = HUD_STYLES;
     document.head.appendChild(style);
-    document.body.appendChild(container);
+    const appContainer = document.getElementById('app-container');
+    if (appContainer) {
+      appContainer.appendChild(container);
+    } else {
+      document.body.appendChild(container);
+    }
 
     // DOM 레퍼런스 캐싱
     this.hpBarA = document.getElementById('hp-bar-a') as HTMLDivElement;
@@ -157,7 +162,7 @@ export class HUD {
 
 const HUD_STYLES = `
   #hud {
-    position: fixed;
+    position: absolute;
     top: 0; left: 0;
     width: 100%; height: 100%;
     pointer-events: none;

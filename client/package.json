@@ -6,12 +6,20 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "mobile:init": "npm run build && npx cap init",
+    "mobile:add-ios": "npx cap add ios",
+    "mobile:add-android": "npx cap add android",
+    "mobile:sync": "npm run build && npx cap sync"
   },
   "dependencies": {
+    "@capacitor/android": "^8.4.1",
+    "@capacitor/core": "^8.4.1",
+    "@capacitor/ios": "^8.4.1",
     "pixi.js": "^8.6.6"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.4.1",
     "typescript": "^5.7.3",
     "vite": "^6.3.5"
   }
